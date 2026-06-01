@@ -1,8 +1,19 @@
 #!/usr/bin/env bash
 set -euo pipefail
+((BASH_VERSINFO[0] > 4 || (BASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] >= 3))) || { echo "bash 4.3+ required (got $BASH_VERSION)"; exit 1; }
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "$SCRIPT_DIR/../config.sh"
 source "$SCRIPT_DIR/lib.sh"
+
+# TOOLS に列挙した各ツールの必須キーが定義されているか早期チェック
+for tool in "${TOOLS[@]}"; do
+    for key in TOOL_cmdline TOOL_workdir TOOL_wait_max TOOL_ready_pattern TOOL_prompt_file; do
+        declare -n _ref="$key"
+        if [[ -z "${_ref[$tool]+set}" ]]; then
+            echo "ERROR: $key[$tool] is not defined in config.sh"; exit 1
+        fi
+    done
+done
 
 mkdir -p "$STATE_DIR" "$(dirname "$LOG_FILE")"
 
@@ -10,13 +21,21 @@ mkdir -p "$STATE_DIR" "$(dirname "$LOG_FILE")"
 exec 9>"$LOCK_FILE"
 flock -n 9 || { log "another instance running, exit"; exit 0; }
 
-CLAUDE_PROMPT=$(cat "$SCRIPT_DIR/../prompts/claude.txt")
-CODEX_PROMPT=$(cat "$SCRIPT_DIR/../prompts/codex.txt")
+# プロンプトを一括ロード
+declare -A TOOL_prompt
+for tool in "${TOOLS[@]}"; do
+    prompt_path="$SCRIPT_DIR/../prompts/${TOOL_prompt_file[$tool]}"
+    if [ ! -f "$prompt_path" ]; then
+        log "ERROR: prompt file not found: $prompt_path"
+        exit 1
+    fi
+    TOOL_prompt[$tool]=$(cat "$prompt_path")
+done
 
 # workdir 存在チェック
-for dir in "$CLAUDE_WORKDIR" "$CODEX_WORKDIR"; do
-    if [ ! -d "$dir" ]; then
-        log "ERROR: workdir not found: $dir"
+for tool in "${TOOLS[@]}"; do
+    if [ ! -d "${TOOL_workdir[$tool]}" ]; then
+        log "ERROR: workdir not found: ${TOOL_workdir[$tool]} (tool: $tool)"
         exit 1
     fi
 done
@@ -24,52 +43,56 @@ done
 # セッション無ければ作成して pane ID を保存
 if ! tmux has-session -t "$TMUX_SESSION" 2>/dev/null; then
     log "Creating tmux session: $TMUX_SESSION"
-    claude_pane=$(tmux new-session -d -s "$TMUX_SESSION" -c "$CLAUDE_WORKDIR" -PF '#{pane_id}')
-    codex_pane=$(tmux split-window -h -t "$claude_pane" -c "$CODEX_WORKDIR" -PF '#{pane_id}')
+    first_pane=""
+    for tool in "${TOOLS[@]}"; do
+        local_workdir="${TOOL_workdir[$tool]}"
+        if [ -z "$first_pane" ]; then
+            pane_id=$(tmux new-session -d -s "$TMUX_SESSION" -c "$local_workdir" -PF '#{pane_id}')
+            first_pane="$pane_id"
+        else
+            pane_id=$(tmux split-window -h -t "$first_pane" -c "$local_workdir" -PF '#{pane_id}')
+        fi
+        echo "$pane_id" > "$STATE_DIR/$tool.pane"
+        log "pane created: $tool=$pane_id ($local_workdir)"
+    done
     tmux select-layout -t "$TMUX_SESSION" even-horizontal
-    echo "$claude_pane" > "$CLAUDE_PANE_FILE"
-    echo "$codex_pane" > "$CODEX_PANE_FILE"
-    log "pane ids: claude=$claude_pane ($CLAUDE_WORKDIR) codex=$codex_pane ($CODEX_WORKDIR)"
     # .bashrc の初期化（compinit/starship 等）が子プロセスを spawn し終えるまで待つ
     sleep 2
 fi
 
 # state ファイルとセッションの整合性チェック
-if [ ! -f "$CLAUDE_PANE_FILE" ] || [ ! -f "$CODEX_PANE_FILE" ]; then
-    log "ERROR: state files missing but session alive."
-    log "Run: tmux kill-session -t $TMUX_SESSION  (then re-run this script)"
-    exit 1
-fi
-
-CLAUDE_PANE=$(cat "$CLAUDE_PANE_FILE")
-CODEX_PANE=$(cat "$CODEX_PANE_FILE")
+for tool in "${TOOLS[@]}"; do
+    if [ ! -f "$STATE_DIR/$tool.pane" ]; then
+        log "ERROR: state file missing for $tool but session alive."
+        log "Run: tmux kill-session -t $TMUX_SESSION  (then re-run this script)"
+        exit 1
+    fi
+done
 
 # pane の存在確認
-for pane in "$CLAUDE_PANE" "$CODEX_PANE"; do
-    if ! tmux list-panes -a -F '#{pane_id}' | grep -qx "$pane"; then
-        log "ERROR: pane $pane not found. Run 'tmux kill-session -t $TMUX_SESSION' and retry."
+for tool in "${TOOLS[@]}"; do
+    pane_id=$(cat "$STATE_DIR/$tool.pane")
+    if ! tmux list-panes -a -F '#{pane_id}' | grep -qx "$pane_id"; then
+        log "ERROR: pane $pane_id ($tool) not found. Run 'tmux kill-session -t $TMUX_SESSION' and retry."
         exit 1
     fi
 done
 
 # ツール起動 + プロンプト投入ヘルパ
 launch_and_send() {
-    local name="$1" pane="$2" cmd="$3" prompt="$4" wait_max="$5" ready_pattern="$6" workdir="$7"
+    local name="$1" pane="$2" cmdline="$3" prompt="$4" wait_max="$5" ready_pattern="$6" workdir="$7"
 
     if is_pane_idle "$pane"; then
-        # ツール未起動 → 起動してから ready 待ち
-        local quoted_workdir quoted_cmd
+        local quoted_workdir
         printf -v quoted_workdir '%q' "$workdir"
-        printf -v quoted_cmd '%q' "$cmd"
         log "Starting $name in pane $pane (workdir: $workdir)"
         tmux send-keys -t "$pane" "cd $quoted_workdir && clear" Enter
         sleep 1
-        tmux send-keys -t "$pane" "$quoted_cmd" Enter
+        tmux send-keys -t "$pane" "$cmdline" Enter
         if ! wait_for_tool_ready "$pane" "$ready_pattern" "$wait_max"; then
             log "$name did not become ready within ${wait_max}s, sending prompt anyway (may fail)"
         fi
     else
-        # ツール起動済み → ready パターンが既に出ているか確認、なければ待つ
         log "$name is already running, sending prompt directly"
         if ! wait_for_tool_ready "$pane" "$ready_pattern" 5; then
             log "$name ready pattern not found, sending prompt anyway"
@@ -82,12 +105,16 @@ launch_and_send() {
     tmux send-keys -t "$pane" Enter
 }
 
-# Claude Code: ╭─ 罫線と "for shortcuts" を検出
-CLAUDE_READY_PATTERN='╭─|for shortcuts'
-# Codex CLI: "◯" や "session id:" を検出
-CODEX_READY_PATTERN='◯|session id:'
-
-launch_and_send "codex"  "$CODEX_PANE"  "$CODEX_CMD"  "$CODEX_PROMPT"  "$CODEX_WAIT_MAX"  "$CODEX_READY_PATTERN"  "$CODEX_WORKDIR"
-launch_and_send "claude" "$CLAUDE_PANE" "$CLAUDE_CMD" "$CLAUDE_PROMPT" "$CLAUDE_WAIT_MAX" "$CLAUDE_READY_PATTERN" "$CLAUDE_WORKDIR"
+for tool in "${TOOLS[@]}"; do
+    pane_id=$(cat "$STATE_DIR/$tool.pane")
+    launch_and_send \
+        "$tool" \
+        "$pane_id" \
+        "${TOOL_cmdline[$tool]}" \
+        "${TOOL_prompt[$tool]}" \
+        "${TOOL_wait_max[$tool]}" \
+        "${TOOL_ready_pattern[$tool]}" \
+        "${TOOL_workdir[$tool]}"
+done
 
 log "Done"

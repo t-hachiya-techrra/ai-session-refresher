@@ -1,24 +1,38 @@
 TMUX_SESSION="ai-work"
-
-# 絶対パス（cron の貧弱な PATH 対策）
-# which claude / which codex で確認してから設定する
-CLAUDE_CMD="$HOME/.local/bin/claude"
-CODEX_CMD="$HOME/.nvm/versions/node/vX.Y.Z/bin/codex"
-
-# 各ツールの起動ディレクトリ
-CLAUDE_WORKDIR="$HOME/repos/ai-session-refresher"
-CODEX_WORKDIR="$HOME/repos/ai-session-refresher"
-
-# pane 起動完了を待つ最大秒数
-CLAUDE_WAIT_MAX=20
-CODEX_WAIT_MAX=15
 POLL_INTERVAL=1
-
-# pane ID 保存先
 STATE_DIR="$HOME/.cache/ai-session-refresher"
-CLAUDE_PANE_FILE="$STATE_DIR/claude.pane"
-CODEX_PANE_FILE="$STATE_DIR/codex.pane"
-
-# ログ
 LOG_FILE="$HOME/.local/log/ai-session-refresher.log"
 LOCK_FILE="$STATE_DIR/refresh.lock"
+
+# ツールの起動順序。ここに名前を追加するだけで pane が増える。
+TOOLS=(claude codex codex-spark)
+
+declare -A TOOL_cmdline       # 実行コマンド＋引数（1本の文字列）
+declare -A TOOL_workdir
+declare -A TOOL_wait_max
+declare -A TOOL_ready_pattern
+declare -A TOOL_prompt_file
+
+# --- claude ---
+# 絶対パスは `which claude` で確認してから設定する（cron の貧弱な PATH 対策）
+TOOL_cmdline[claude]="$HOME/.local/bin/claude"
+TOOL_workdir[claude]="$HOME/repos/your-project"
+TOOL_wait_max[claude]=20
+TOOL_ready_pattern[claude]='╭─|for shortcuts'
+TOOL_prompt_file[claude]="claude.txt"
+
+# --- codex ---
+# 絶対パスは `which codex` で確認してから設定する（cron の貧弱な PATH 対策）
+TOOL_cmdline[codex]="$HOME/.nvm/versions/node/vX.Y.Z/bin/codex"
+TOOL_workdir[codex]="$HOME/repos/your-project"
+TOOL_wait_max[codex]=15
+TOOL_ready_pattern[codex]='◯|session id:'
+TOOL_prompt_file[codex]="codex.txt"
+
+# --- codex-spark ---
+# 絶対パスは `which codex` で確認してから設定する（cron の貧弱な PATH 対策）
+TOOL_cmdline[codex-spark]="$HOME/.nvm/versions/node/vX.Y.Z/bin/codex --model gpt-5.3-codex-spark"
+TOOL_workdir[codex-spark]="$HOME/repos/your-project"
+TOOL_wait_max[codex-spark]=15
+TOOL_ready_pattern[codex-spark]='◯|session id:'
+TOOL_prompt_file[codex-spark]="codex-spark.txt"

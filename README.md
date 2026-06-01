@@ -14,8 +14,9 @@ ai-session-refresher/
 │   ├── check-session.sh    # tmux セッション・pane 状態確認
 │   └── lib.sh              # 共通ヘルパ
 ├── prompts/
-│   ├── claude.txt          # Claude 用軽量プロンプト
-│   └── codex.txt           # Codex 用軽量プロンプト
+│   ├── claude.txt                  # Claude 用軽量プロンプト
+│   ├── codex.txt                   # Codex 用軽量プロンプト
+│   └── codex-spark.txt             # codex-spark 用軽量プロンプト
 └── README.md
 ```
 
@@ -27,7 +28,7 @@ ai-session-refresher/
 cp config.sh.example config.sh
 ```
 
-`CODEX_CMD` の Node バージョン部分を実際の環境に合わせて編集する（`which codex` で確認）。
+`TOOL_cmdline` の Node バージョン部分を実際の環境に合わせて編集する（`which codex` で確認）。ツールを増減するには `TOOLS` 配列の要素を追加・削除し、対応する `TOOL_*[name]` エントリを追記・削除するだけでよい。
 
 ### 2. 実行権限付与
 
@@ -101,7 +102,7 @@ rm -f ~/.cache/ai-session-refresher/*.pane
 
 1. `tmux kill-session -t ai-work` で初期化
 2. `bash scripts/refresh.sh` を手動実行 → ログ確認
-3. `tmux attach -t ai-work` で両 pane に各ツールが起動しプロンプトが入力されているか確認
+3. `tmux attach -t ai-work` で全 pane に各ツールが起動しプロンプトが入力されているか確認
 4. `tmux capture-pane -t <pane_id> -p` で起動画面をキャプチャし、ready パターンが実物にマッチするか確認
 5. 同じスクリプトをもう1度実行し、busy 判定で skip されることを確認
 6. crontab 登録後、次の発火タイミングでログを再確認
