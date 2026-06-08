@@ -1,1 +1,1 @@
-hi
+reply with only {{NONCE}}.

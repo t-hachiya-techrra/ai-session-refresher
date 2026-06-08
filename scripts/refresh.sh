@@ -81,6 +81,12 @@ done
 # ツール起動 + プロンプト投入ヘルパ
 launch_and_send() {
     local name="$1" pane="$2" cmdline="$3" prompt="$4" wait_max="$5" ready_pattern="$6" workdir="$7"
+    local nonce rendered_prompt
+
+    # 固定化回避用の1文字ノンスを毎回生成
+    local charset="0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+    nonce=${charset:$((RANDOM % ${#charset})):1}
+    rendered_prompt="${prompt//\{\{NONCE\}\}/$nonce}"
 
     if is_pane_idle "$pane"; then
         local quoted_workdir
@@ -99,8 +105,8 @@ launch_and_send() {
         fi
     fi
 
-    log "Sending prompt to $name"
-    tmux send-keys -t "$pane" "$prompt"
+    log "Sending prompt to $name (nonce=$nonce)"
+    tmux send-keys -t "$pane" "$rendered_prompt"
     sleep 1
     tmux send-keys -t "$pane" Enter
 }
