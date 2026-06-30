@@ -15,75 +15,6 @@ for arg in "$@"; do
     esac
 done
 
-send_prompt_via_sendkeys() {
-    local pane="$1"
-    local random_bytes="${RANDOM_BYTES:-2048}"
-    local random_token prompt_text
-
-    if ! [[ "$random_bytes" =~ ^[0-9]+$ ]] || [ "$random_bytes" -le 0 ]; then
-        random_bytes=2048
-    fi
-
-    random_token=$(tr -dc 'A-Za-z0-9' </dev/urandom | head -c "$random_bytes")
-    prompt_text="${random_token}  Reply with exactly: OK. Do not analyze, explain, or use markdown."
-
-    log "Submitting codex-spark prompt via send-keys -l (pane=$pane, chars=$random_bytes)"
-    tmux send-keys -l -t "$pane" "$prompt_text" || return 1
-    sleep 1
-    tmux send-keys -t "$pane" Enter || return 1
-    sleep 1
-    tmux send-keys -t "$pane" Enter || return 1
-    log "Submitted codex-spark prompt (pane=$pane, chars=$random_bytes)"
-    return 0
-}
-
-launch_and_send() {
-    local name="$1" pane="$2" cmdline="$3" prompt="$4" wait_max="$5" ready_pattern="$6" workdir="$7"
-
-    if is_pane_idle "$pane"; then
-        local quoted_workdir
-        printf -v quoted_workdir '%q' "$workdir"
-        log "Starting $name in pane $pane (workdir: $workdir)"
-        tmux send-keys -t "$pane" "cd $quoted_workdir && clear" Enter
-        sleep 1
-        tmux send-keys -t "$pane" "$cmdline" Enter
-        if ! wait_for_tool_ready "$pane" "$ready_pattern" "$wait_max"; then
-            log "$name did not become ready within ${wait_max}s"
-        fi
-    else
-        log "$name is already running"
-        wait_for_tool_ready "$pane" "$ready_pattern" 5 || true
-    fi
-
-    if [ "$NO_PROMPT" -eq 1 ]; then
-        log "Skipping prompt for $name (--no-prompt)"
-        return 0
-    fi
-
-    if [ "$name" = "codex-spark" ]; then
-        log "Sending prompt via send-keys -l to $name (pane=$pane)"
-        if send_prompt_via_sendkeys "$pane"; then
-            return 0
-        fi
-        log "ERROR: send-keys send failed for $name (pane=$pane)"
-        return 1
-    fi
-
-    local nonce now rendered_prompt
-    # 固定化回避用の1文字ノンスを毎回生成
-    local charset="0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
-    nonce=${charset:$((RANDOM % ${#charset})):1}
-    # 送信プロンプトに現在時刻を埋める（ローカル時計。同期健全性は check_clock_drift で別途確認）
-    now=$(date '+%Y-%m-%d %H:%M:%S')
-    rendered_prompt="${prompt//\{\{NONCE\}\}/$nonce}"
-    rendered_prompt="${rendered_prompt//\{\{NOW\}\}/$now}"
-
-    log "Sending prompt to $name (nonce=$nonce, now=$now)"
-    tmux send-keys -t "$pane" "$rendered_prompt"
-    sleep 1
-    tmux send-keys -t "$pane" Enter
-}
-
 # TOOLS に列挙した各ツールの必須キーが定義されているか早期チェック
 for tool in "${TOOLS[@]}"; do
     for key in TOOL_cmdline TOOL_workdir TOOL_wait_max TOOL_ready_pattern TOOL_prompt_file; do
@@ -162,7 +93,45 @@ for tool in "${TOOLS[@]}"; do
     fi
 done
 
-overall_rc=0
+# ツール起動 + プロンプト投入ヘルパ
+launch_and_send() {
+    local name="$1" pane="$2" cmdline="$3" prompt="$4" wait_max="$5" ready_pattern="$6" workdir="$7"
+    local nonce now rendered_prompt
+
+    # 固定化回避用の1文字ノンスを毎回生成
+    local charset="0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+    nonce=${charset:$((RANDOM % ${#charset})):1}
+    # 送信プロンプトに現在時刻を埋める（ローカル時計。同期健全性は check_clock_drift で別途確認）
+    now=$(date '+%Y-%m-%d %H:%M:%S')
+    rendered_prompt="${prompt//\{\{NONCE\}\}/$nonce}"
+    rendered_prompt="${rendered_prompt//\{\{NOW\}\}/$now}"
+
+    if is_pane_idle "$pane"; then
+        local quoted_workdir
+        printf -v quoted_workdir '%q' "$workdir"
+        log "Starting $name in pane $pane (workdir: $workdir)"
+        tmux send-keys -t "$pane" "cd $quoted_workdir && clear" Enter
+        sleep 1
+        tmux send-keys -t "$pane" "$cmdline" Enter
+        if ! wait_for_tool_ready "$pane" "$ready_pattern" "$wait_max"; then
+            log "$name did not become ready within ${wait_max}s"
+        fi
+    else
+        log "$name is already running"
+        wait_for_tool_ready "$pane" "$ready_pattern" 5 || true
+    fi
+
+    if [ "$NO_PROMPT" -eq 1 ]; then
+        log "Skipping prompt for $name (--no-prompt)"
+        return 0
+    fi
+
+    log "Sending prompt to $name (nonce=$nonce, now=$now)"
+    tmux send-keys -t "$pane" "$rendered_prompt"
+    sleep 1
+    tmux send-keys -t "$pane" Enter
+}
+
 for tool in "${TOOLS[@]}"; do
     pane_id=$(cat "$STATE_DIR/$tool.pane")
     launch_and_send \
@@ -172,8 +141,7 @@ for tool in "${TOOLS[@]}"; do
         "${TOOL_prompt[$tool]}" \
         "${TOOL_wait_max[$tool]}" \
         "${TOOL_ready_pattern[$tool]}" \
-        "${TOOL_workdir[$tool]}" || overall_rc=1
+        "${TOOL_workdir[$tool]}"
 done
 
 log "Done"
-exit "$overall_rc"
