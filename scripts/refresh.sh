@@ -15,11 +15,10 @@ for arg in "$@"; do
     esac
 done
 
-send_prompt_via_paste_buffer() {
+send_prompt_via_sendkeys() {
     local pane="$1"
     local random_bytes="${RANDOM_BYTES:-2048}"
     local random_token prompt_text
-    local tmp_file buffer_name
 
     if ! [[ "$random_bytes" =~ ^[0-9]+$ ]] || [ "$random_bytes" -le 0 ]; then
         random_bytes=2048
@@ -27,16 +26,13 @@ send_prompt_via_paste_buffer() {
 
     random_token=$(tr -dc 'A-Za-z0-9' </dev/urandom | head -c "$random_bytes")
     prompt_text="${random_token}  Reply with exactly: OK. Do not analyze, explain, or use markdown."
-    tmp_file=$(mktemp)
-    printf '%s' "$prompt_text" > "$tmp_file"
-    buffer_name="codex-spark-anchor-$$-$RANDOM"
 
-    trap "tmux delete-buffer -b '$buffer_name' 2>/dev/null || true; rm -f '$tmp_file'" RETURN
-
-    tmux load-buffer -b "$buffer_name" "$tmp_file" || return 1
-    tmux paste-buffer -b "$buffer_name" -t "$pane" || return 1
+    log "Submitting codex-spark prompt via send-keys -l (pane=$pane, chars=$random_bytes)"
+    tmux send-keys -l -t "$pane" "$prompt_text" || return 1
     sleep 1
     tmux send-keys -t "$pane" Enter || return 1
+    log "Submitted codex-spark prompt (pane=$pane, chars=$random_bytes)"
+    return 0
 }
 
 launch_and_send() {
@@ -63,11 +59,11 @@ launch_and_send() {
     fi
 
     if [ "$name" = "codex-spark" ]; then
-        log "Sending prompt via paste-buffer to $name (pane=$pane)"
-        if send_prompt_via_paste_buffer "$pane"; then
+        log "Sending prompt via send-keys -l to $name (pane=$pane)"
+        if send_prompt_via_sendkeys "$pane"; then
             return 0
         fi
-        log "ERROR: paste-buffer send failed for $name (pane=$pane)"
+        log "ERROR: send-keys send failed for $name (pane=$pane)"
         return 1
     fi
 
