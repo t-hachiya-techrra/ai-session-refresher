@@ -125,6 +125,10 @@ bash scripts/refresh.sh --no-prompt
 - pane ID は保存されるので、次回 cron の通常実行はこのセッションをそのまま再利用する。
 - 時計ドリフト検知（canary）は通常どおり1回走る。
 
+## マウス操作
+
+`ai-work` セッションは作成時に `mouse on` を有効化するため、`tmux attach -t ai-work` 後にマウスで pane の選択・リサイズ・スクロールができる（この session 限定。コピー時は端末によって `Shift`+ドラッグが必要）。
+
 ## リセット手順
 
 pane が壊れた・状態が乱れた場合：

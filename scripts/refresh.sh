@@ -69,6 +69,8 @@ if ! tmux has-session -t "$TMUX_SESSION" 2>/dev/null; then
         log "pane created: $tool=$pane_id ($local_workdir)"
     done
     tmux select-layout -t "$TMUX_SESSION" even-horizontal
+    # マウスで pane 選択・リサイズ・スクロールできるようにする（この session 限定）
+    tmux set-option -t "$TMUX_SESSION" mouse on
     # .bashrc の初期化（compinit/starship 等）が子プロセスを spawn し終えるまで待つ
     sleep 2
 fi
