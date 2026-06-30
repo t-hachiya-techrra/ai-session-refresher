@@ -5,6 +5,16 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "$SCRIPT_DIR/../config.sh"
 source "$SCRIPT_DIR/lib.sh"
 
+# 引数解析: --no-prompt はツール起動だけ行いプロンプト送信をスキップする
+NO_PROMPT=0
+for arg in "$@"; do
+    case "$arg" in
+        --no-prompt) NO_PROMPT=1 ;;
+        -h|--help) echo "Usage: $(basename "$0") [--no-prompt]"; exit 0 ;;
+        *) echo "ERROR: unknown argument: $arg (see --help)" >&2; exit 1 ;;
+    esac
+done
+
 # TOOLS に列挙した各ツールの必須キーが定義されているか早期チェック
 for tool in "${TOOLS[@]}"; do
     for key in TOOL_cmdline TOOL_workdir TOOL_wait_max TOOL_ready_pattern TOOL_prompt_file; do
@@ -102,13 +112,16 @@ launch_and_send() {
         sleep 1
         tmux send-keys -t "$pane" "$cmdline" Enter
         if ! wait_for_tool_ready "$pane" "$ready_pattern" "$wait_max"; then
-            log "$name did not become ready within ${wait_max}s, sending prompt anyway (may fail)"
+            log "$name did not become ready within ${wait_max}s"
         fi
     else
-        log "$name is already running, sending prompt directly"
-        if ! wait_for_tool_ready "$pane" "$ready_pattern" 5; then
-            log "$name ready pattern not found, sending prompt anyway"
-        fi
+        log "$name is already running"
+        wait_for_tool_ready "$pane" "$ready_pattern" 5 || true
+    fi
+
+    if [ "$NO_PROMPT" -eq 1 ]; then
+        log "Skipping prompt for $name (--no-prompt)"
+        return 0
     fi
 
     log "Sending prompt to $name (nonce=$nonce, now=$now)"
