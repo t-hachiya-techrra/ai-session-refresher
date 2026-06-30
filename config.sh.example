@@ -11,6 +11,8 @@ LOCK_FILE="$STATE_DIR/refresh.lock"
 # CLOCK_DRIFT_WARN_SEC=5
 # 比較元 URL。未定義なら既定値（Google / Cloudflare）。先頭から順に試す。
 # TIME_SOURCE_URLS=(https://www.google.com https://www.cloudflare.com)
+# 2048は暫定値。codex-spark 側の送信成功/消費量を見て最小化・増量は都度調整
+RANDOM_BYTES=2048
 
 # ツールの起動順序。ここに名前を追加するだけで pane が増える。
 TOOLS=(claude codex codex-spark)
