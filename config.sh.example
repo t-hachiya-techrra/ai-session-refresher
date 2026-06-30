@@ -4,6 +4,14 @@ STATE_DIR="$HOME/.cache/ai-session-refresher"
 LOG_FILE="$HOME/.local/log/ai-session-refresher.log"
 LOCK_FILE="$STATE_DIR/refresh.lock"
 
+# 時計ドリフト検知 canary の設定。
+# 実行ごとに1回、ローカル時計を外部サーバ時刻(HTTP Date ヘッダ)と比較し、
+# CLOCK_DRIFT_WARN_SEC を超えてズレていたら warning ログを出す（処理は止めない）。
+# {{NOW}} 自体はローカル時計を使う（NTP 同期済みなら最精密）。
+# CLOCK_DRIFT_WARN_SEC=5
+# 比較元 URL。未定義なら既定値（Google / Cloudflare）。先頭から順に試す。
+# TIME_SOURCE_URLS=(https://www.google.com https://www.cloudflare.com)
+
 # ツールの起動順序。ここに名前を追加するだけで pane が増える。
 TOOLS=(claude codex codex-spark)
 

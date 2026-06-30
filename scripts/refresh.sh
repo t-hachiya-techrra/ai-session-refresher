@@ -21,6 +21,9 @@ mkdir -p "$STATE_DIR" "$(dirname "$LOG_FILE")"
 exec 9>"$LOCK_FILE"
 flock -n 9 || { log "another instance running, exit"; exit 0; }
 
+# ローカル時計のズレを1回だけ確認（warning のみ、処理は止めない）
+check_clock_drift
+
 # プロンプトを一括ロード
 declare -A TOOL_prompt
 for tool in "${TOOLS[@]}"; do
@@ -81,12 +84,15 @@ done
 # ツール起動 + プロンプト投入ヘルパ
 launch_and_send() {
     local name="$1" pane="$2" cmdline="$3" prompt="$4" wait_max="$5" ready_pattern="$6" workdir="$7"
-    local nonce rendered_prompt
+    local nonce now rendered_prompt
 
     # 固定化回避用の1文字ノンスを毎回生成
     local charset="0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
     nonce=${charset:$((RANDOM % ${#charset})):1}
+    # 送信プロンプトに現在時刻を埋める（ローカル時計。同期健全性は check_clock_drift で別途確認）
+    now=$(date '+%Y-%m-%d %H:%M:%S')
     rendered_prompt="${prompt//\{\{NONCE\}\}/$nonce}"
+    rendered_prompt="${rendered_prompt//\{\{NOW\}\}/$now}"
 
     if is_pane_idle "$pane"; then
         local quoted_workdir
@@ -105,7 +111,7 @@ launch_and_send() {
         fi
     fi
 
-    log "Sending prompt to $name (nonce=$nonce)"
+    log "Sending prompt to $name (nonce=$nonce, now=$now)"
     tmux send-keys -t "$pane" "$rendered_prompt"
     sleep 1
     tmux send-keys -t "$pane" Enter

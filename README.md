@@ -20,6 +20,29 @@ ai-session-refresher/
 └── README.md
 ```
 
+## プロンプトのテンプレート変数
+
+`prompts/*.txt` 内で以下のトークンを使える。`refresh.sh` が送信直前に実値へ置換する。
+
+- `{{NONCE}}` — 毎回ランダムな1文字。応答の固定化（キャッシュ的な同一応答）を回避する。
+- `{{NOW}}` — 送信時の現在時刻 `YYYY-MM-DD HH:MM:SS`。スクリプト側でローカル時計（`date`）から生成して埋め込む（AI は実時刻を知らないため）。ローカル時計が NTP 同期されていれば ms 精度で、HTTP 由来の時刻より精密。
+
+## 時計ドリフト検知（canary）
+
+`{{NOW}}` はローカル時計を使うが、その時計が NTP 同期から外れて狂っていないかを `refresh.sh` 実行ごとに1回だけ確認する。
+
+- 外部サーバの HTTP `Date` ヘッダ（既定 Google / Cloudflare）とローカル時計を比較。
+- 差が `CLOCK_DRIFT_WARN_SEC`（既定 5 秒）を超えたら warning をログに出す。**処理は止めない。** warning が出たら `timedatectl` で NTP 同期状態を確認する。
+- 外部時刻を取得できない（ネットワーク不通等）場合はスキップ。
+- HTTP `Date` は秒粒度＋片道遅延があるため精度は ±1 秒程度。あくまで「分・時間単位の狂い」を検知する canary であり、精密な時刻同期ではない。
+- `config.sh` で `CLOCK_DRIFT_WARN_SEC` と比較元 `TIME_SOURCE_URLS` を上書きできる。
+
+例（`prompts/claude.txt`）:
+
+```
+[{{NOW}}] reply with only {{NONCE}}.
+```
+
 ## セットアップ
 
 ### 1. config.sh を作成

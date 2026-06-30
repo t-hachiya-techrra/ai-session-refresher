@@ -1,1 +1,1 @@
-reply with only {{NONCE}}.
+[{{NOW}}] reply with only {{NONCE}}.
