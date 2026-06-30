@@ -31,6 +31,8 @@ send_prompt_via_sendkeys() {
     tmux send-keys -l -t "$pane" "$prompt_text" || return 1
     sleep 1
     tmux send-keys -t "$pane" Enter || return 1
+    sleep 1
+    tmux send-keys -t "$pane" Enter || return 1
     log "Submitted codex-spark prompt (pane=$pane, chars=$random_bytes)"
     return 0
 }
